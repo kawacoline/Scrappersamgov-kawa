@@ -1,9 +1,9 @@
-// State
 let config = null;
 let currentResults = [];
 let currentPage = 1;
 const LIMIT = 25;
 let currentFilters = {};
+let currentMode = 'active';
 
 // DOM Elements
 const els = {
@@ -231,6 +231,8 @@ async function performSearch(isPagination = false) {
     els.pagination.style.display = 'none';
     els.loading.style.display = 'block';
 
+    currentMode = document.querySelector('input[name="searchMode"]:checked').value;
+
     if (!isPagination) {
         // Gather filters
         currentFilters = {
@@ -266,13 +268,15 @@ async function performSearch(isPagination = false) {
     params.append('limit', LIMIT);
     params.append('offset', offset);
 
+    const apiUrl = currentMode === 'past' ? `/api/awards?${params.toString()}` : `/api/search?${params.toString()}`;
+
     try {
-        const res = await fetch(`/api/search?${params.toString()}`);
+        const res = await fetch(apiUrl);
         const data = await res.json();
         
         if (!res.ok) throw new Error(data.message || data.error || 'API Request Failed');
         
-        displayResults(data);
+        displayResults(data, currentMode);
         
     } catch (err) {
         console.error("Search error:", err);
@@ -280,18 +284,18 @@ async function performSearch(isPagination = false) {
     }
 }
 
-function displayResults(data) {
+function displayResults(data, mode) {
     els.loading.style.display = 'none';
     els.resultsList.innerHTML = '';
     
-    currentResults = data.opportunitiesData || [];
+    currentResults = mode === 'past' ? (data.awardSummary || []) : (data.opportunitiesData || []);
     const total = data.totalRecords || 0;
     
     els.total.textContent = total;
     els.showing.textContent = currentResults.length;
     
     if (currentResults.length === 0) {
-        els.resultsList.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-secondary);">No opportunities found matching these filters.</div>`;
+        els.resultsList.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-secondary);">No results found matching these filters.</div>`;
         els.resultsList.style.display = 'block';
         els.btnExport.disabled = true;
         return;
@@ -299,46 +303,80 @@ function displayResults(data) {
     
     els.btnExport.disabled = false;
 
-    currentResults.forEach((opp, i) => {
+    currentResults.forEach((item, i) => {
         const card = document.createElement('div');
         card.className = 'card';
-        card.onclick = () => openModal(i);
-        
-        const dept = opp.department || '';
-        const sub = opp.subTier ? ` • ${opp.subTier}` : '';
-        const agency = `${dept}${sub}`;
-        
-        let badgesHtml = '';
-        if (opp.active === 'Yes') badgesHtml += `<span class="badge active">Active</span>`;
-        if (opp.type) badgesHtml += `<span class="badge type">${opp.type}</span>`;
-        if (opp.naicsCode) badgesHtml += `<span class="badge">NAICS: ${opp.naicsCode}</span>`;
-        if (opp.typeOfSetAsideDescription) badgesHtml += `<span class="badge">🎁 ${opp.typeOfSetAsideDescription}</span>`;
+        card.onclick = () => openModal(i, mode);
 
-        card.innerHTML = `
-            <div class="card-header">
-                <div>
-                    <h3 class="card-title">${opp.title || 'Untitled Opportunity'}</h3>
-                    <div class="card-agency">${agency}</div>
-                </div>
-            </div>
+        if (mode === 'past') {
+            const awardeeName = item.awardeeData?.awardeeHeader?.awardeeName || item.awardeeData?.awardeeHeader?.legalBusinessName || 'Unknown Awardee';
+            const piid = item.contractId?.piid || 'N/A';
+            const agency = item.coreData?.fundingSubtierName || item.coreData?.contractingDepartmentName || 'Federal Agency';
+            const dollars = item.awardDetails?.dollars?.actionObligation || item.awardDetails?.dollars?.totalContractDollars || 0;
+            const dateSigned = item.awardDetails?.dates?.dateSigned || item.coreData?.dateSigned;
             
-            <div class="badges">${badgesHtml}</div>
+            card.innerHTML = `
+                <div class="card-header">
+                    <div>
+                        <h3 class="card-title">${awardeeName}</h3>
+                        <div class="card-agency">${agency}</div>
+                    </div>
+                </div>
+                
+                <div class="badges">
+                    <span class="badge award">Past Award</span>
+                    <span class="badge">PIID: ${piid}</span>
+                </div>
+                
+                <div class="card-meta">
+                    <div class="meta-item">
+                        <span class="meta-label">Date Signed</span>
+                        <span class="meta-value">${formatDateForDisplay(dateSigned)}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Obligated Amount</span>
+                        <span class="meta-value">$${parseFloat(dollars).toLocaleString()}</span>
+                    </div>
+                </div>
+            `;
+        } else {
+            const opp = item;
+            const dept = opp.department || '';
+            const sub = opp.subTier ? ` • ${opp.subTier}` : '';
+            const agency = `${dept}${sub}`;
             
-            <div class="card-meta">
-                <div class="meta-item">
-                    <span class="meta-label">Notice ID / Sol. #</span>
-                    <span class="meta-value mono">${opp.solicitationNumber || opp.noticeId || 'N/A'}</span>
+            let badgesHtml = '';
+            if (opp.active === 'Yes') badgesHtml += `<span class="badge active">Active</span>`;
+            if (opp.type) badgesHtml += `<span class="badge type">${opp.type}</span>`;
+            if (opp.naicsCode) badgesHtml += `<span class="badge">NAICS: ${opp.naicsCode}</span>`;
+            if (opp.typeOfSetAsideDescription) badgesHtml += `<span class="badge">🎁 ${opp.typeOfSetAsideDescription}</span>`;
+
+            card.innerHTML = `
+                <div class="card-header">
+                    <div>
+                        <h3 class="card-title">${opp.title || 'Untitled Opportunity'}</h3>
+                        <div class="card-agency">${agency}</div>
+                    </div>
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">Posted Date</span>
-                    <span class="meta-value">${formatDateForDisplay(opp.postedDate)}</span>
+                
+                <div class="badges">${badgesHtml}</div>
+                
+                <div class="card-meta">
+                    <div class="meta-item">
+                        <span class="meta-label">Notice ID / Sol. #</span>
+                        <span class="meta-value mono">${opp.solicitationNumber || opp.noticeId || 'N/A'}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Posted Date</span>
+                        <span class="meta-value">${formatDateForDisplay(opp.postedDate)}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Response Due</span>
+                        <span class="meta-value">${formatDateForDisplay(opp.responseDeadLine)}</span>
+                    </div>
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">Response Due</span>
-                    <span class="meta-value">${formatDateForDisplay(opp.responseDeadLine)}</span>
-                </div>
-            </div>
-        `;
+            `;
+        }
         els.resultsList.appendChild(card);
     });
     
@@ -361,64 +399,108 @@ function showError(msg) {
 }
 window.retrySearch = () => performSearch(true);
 
-function openModal(index) {
-    const opp = currentResults[index];
-    if (!opp) return;
-    
-    const uiLink = opp.uiLink && opp.uiLink !== 'null' ? opp.uiLink : `https://sam.gov/opp/${opp.noticeId}/view`;
+function openModal(index, mode) {
+    const item = currentResults[index];
+    if (!item) return;
 
-    let contentHtml = `
-        <div class="m-header">
-            <div class="m-dept">${opp.department || 'N/A'} ${opp.subTier ? `> ${opp.subTier}` : ''}</div>
-            <h2 class="m-title">${opp.title || 'Untitled'}</h2>
-            <div class="m-sub">Solicitation Number: <span class="mono">${opp.solicitationNumber || 'N/A'}</span></div>
-        </div>
-        
-        <div class="m-grid">
-            <div class="m-detail">
-                <div class="meta-label">Notice Type</div>
-                <div class="meta-value">${opp.type || 'N/A'}</div>
+    let contentHtml = '';
+
+    if (mode === 'past') {
+        const awardeeName = item.awardeeData?.awardeeHeader?.awardeeName || item.awardeeData?.awardeeHeader?.legalBusinessName || 'Unknown Awardee';
+        const piid = item.contractId?.piid || 'N/A';
+        const agency = item.coreData?.fundingSubtierName || item.coreData?.contractingDepartmentName || 'Federal Agency';
+        const dateSigned = item.awardDetails?.dates?.dateSigned || item.coreData?.dateSigned;
+        const dollars = item.awardDetails?.dollars?.actionObligation || item.awardDetails?.dollars?.totalContractDollars || 0;
+        const uiLink = `https://sam.gov/wage-determination/${piid}/view`; // Generic fallback
+
+        contentHtml = `
+            <div class="m-header">
+                <div class="m-dept">${agency}</div>
+                <h2 class="m-title">${awardeeName}</h2>
+                <div class="m-sub">PIID: <span class="mono">${piid}</span></div>
             </div>
-            <div class="m-detail">
-                <div class="meta-label">Set-Aside</div>
-                <div class="meta-value">${opp.typeOfSetAsideDescription || 'None'}</div>
+            
+            <div class="m-grid">
+                <div class="m-detail">
+                    <div class="meta-label">Awardee UEI</div>
+                    <div class="meta-value mono">${item.awardeeData?.awardeeUEIInformation?.uniqueEntityId || 'N/A'}</div>
+                </div>
+                <div class="m-detail">
+                    <div class="meta-label">Cage Code</div>
+                    <div class="meta-value mono">${item.awardeeData?.awardeeUEIInformation?.cageCode || 'N/A'}</div>
+                </div>
+                <div class="m-detail">
+                    <div class="meta-label">Date Signed</div>
+                    <div class="meta-value">${formatDateForDisplay(dateSigned)}</div>
+                </div>
+                <div class="m-detail">
+                    <div class="meta-label">Obligated Amount</div>
+                    <div class="meta-value">$${parseFloat(dollars).toLocaleString()}</div>
+                </div>
+                <div class="m-detail" style="grid-column: span 2;">
+                    <div class="meta-label">Address</div>
+                    <div class="meta-value">${item.awardeeData?.awardeeLocation?.streetAddress1 || ''} ${item.awardeeData?.awardeeLocation?.city || ''}, ${item.awardeeData?.awardeeLocation?.state?.code || ''}</div>
+                </div>
             </div>
-            <div class="m-detail">
-                <div class="meta-label">NAICS Code</div>
-                <div class="meta-value">${opp.naicsCode || 'N/A'}</div>
-            </div>
-            <div class="m-detail">
-                <div class="meta-label">Classification Code</div>
-                <div class="meta-value">${opp.classificationCode || 'N/A'}</div>
-            </div>
-            <div class="m-detail">
-                <div class="meta-label">Posted Date</div>
-                <div class="meta-value">${formatDateForDisplay(opp.postedDate)}</div>
-            </div>
-            <div class="m-detail">
-                <div class="meta-label">Response Deadline</div>
-                <div class="meta-value">${formatDateForDisplay(opp.responseDeadLine)}</div>
-            </div>
-        </div>
-        
-        <div class="meta-label" style="margin-bottom:8px">Primary Point of Contact</div>
-        <div class="m-detail" style="margin-bottom:24px">
-    `;
-    
-    if (opp.pointOfContact && opp.pointOfContact.length > 0) {
-        const poc = opp.pointOfContact[0];
-        contentHtml += `
-            <div style="font-weight:600">${poc.fullName || 'N/A'} (${poc.title || 'Contact'})</div>
-            <div>📧 <a href="mailto:${poc.email}" style="color:var(--accent-primary)">${poc.email || 'N/A'}</a></div>
-            <div>📞 ${poc.phone || 'N/A'}</div>
+            <a href="https://sam.gov/" target="_blank" class="m-link">View Full Details on SAM.gov ↗</a>
         `;
     } else {
-        contentHtml += `<em>No point of contact listed in API.</em>`;
+        const opp = item;
+        const uiLink = opp.uiLink && opp.uiLink !== 'null' ? opp.uiLink : `https://sam.gov/opp/${opp.noticeId}/view`;
+
+        contentHtml = `
+            <div class="m-header">
+                <div class="m-dept">${opp.department || 'N/A'} ${opp.subTier ? `> ${opp.subTier}` : ''}</div>
+                <h2 class="m-title">${opp.title || 'Untitled'}</h2>
+                <div class="m-sub">Solicitation Number: <span class="mono">${opp.solicitationNumber || 'N/A'}</span></div>
+            </div>
+            
+            <div class="m-grid">
+                <div class="m-detail">
+                    <div class="meta-label">Notice Type</div>
+                    <div class="meta-value">${opp.type || 'N/A'}</div>
+                </div>
+                <div class="m-detail">
+                    <div class="meta-label">Set-Aside</div>
+                    <div class="meta-value">${opp.typeOfSetAsideDescription || 'None'}</div>
+                </div>
+                <div class="m-detail">
+                    <div class="meta-label">NAICS Code</div>
+                    <div class="meta-value">${opp.naicsCode || 'N/A'}</div>
+                </div>
+                <div class="m-detail">
+                    <div class="meta-label">Classification Code</div>
+                    <div class="meta-value">${opp.classificationCode || 'N/A'}</div>
+                </div>
+                <div class="m-detail">
+                    <div class="meta-label">Posted Date</div>
+                    <div class="meta-value">${formatDateForDisplay(opp.postedDate)}</div>
+                </div>
+                <div class="m-detail">
+                    <div class="meta-label">Response Deadline</div>
+                    <div class="meta-value">${formatDateForDisplay(opp.responseDeadLine)}</div>
+                </div>
+            </div>
+            
+            <div class="meta-label" style="margin-bottom:8px">Primary Point of Contact</div>
+            <div class="m-detail" style="margin-bottom:24px">
+        `;
+        
+        if (opp.pointOfContact && opp.pointOfContact.length > 0) {
+            const poc = opp.pointOfContact[0];
+            contentHtml += `
+                <div style="font-weight:600">${poc.fullName || 'N/A'} (${poc.title || 'Contact'})</div>
+                <div>📧 <a href="mailto:${poc.email}" style="color:var(--accent-primary)">${poc.email || 'N/A'}</a></div>
+                <div>📞 ${poc.phone || 'N/A'}</div>
+            `;
+        } else {
+            contentHtml += `<em>No point of contact listed in API.</em>`;
+        }
+        
+        contentHtml += `</div>
+            <a href="${uiLink}" target="_blank" class="m-link">View Full Details on SAM.gov ↗</a>
+        `;
     }
-    
-    contentHtml += `</div>
-        <a href="${uiLink}" target="_blank" class="m-link">View Full Details on SAM.gov ↗</a>
-    `;
 
     els.modalContent.innerHTML = contentHtml;
     els.modalOverlay.style.display = 'flex';

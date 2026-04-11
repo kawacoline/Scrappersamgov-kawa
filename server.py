@@ -23,7 +23,9 @@ app = Flask(__name__, static_folder="static")
 CORS(app)
 
 SAM_API_BASE = "https://api.sam.gov/opportunities/v2/search"
+SAM_AWARDS_BASE = "https://api.sam.gov/contract-awards/v1/search"
 SAM_API_KEY = os.getenv("SAM_API_KEY", "DEMO_KEY")
+API_KEY = SAM_API_KEY
 
 # ── NAICS codes relevant to deliveries & software licensing ─────────
 NAICS_PRESETS = {
@@ -242,6 +244,78 @@ def search_opportunities():
         "appliedFilters": {k: v for k, v in params.items() if k != "api_key"}
     })
 
+@app.route("/api/awards", methods=["GET"])
+def search_awards():
+    """Proxy the request to SAM.gov Contract Awards API and return JSON data."""
+    if not API_KEY or API_KEY == "your_api_key_here":
+        return jsonify({"error": "Configuration Error", "message": "API key missing in .env"}), 500
+
+    limit = request.args.get("limit", "25")
+    offset = request.args.get("offset", "0")
+    
+    params = {
+        "api_key": API_KEY,
+        "limit": limit,
+        "offset": offset
+    }
+
+    keyword = request.args.get("ptq")
+    if keyword:
+        params["q"] = keyword
+        
+    ncodes = request.args.get("ncode", "")
+    ncode_list = [n.strip() for n in ncodes.split(",")] if ncodes else [None]
+
+    all_awards = []
+    total_records = 0
+    seen_ids = set()
+    errors = []
+
+    def fetch_for_ncode(ncode_val):
+        iter_params = params.copy()
+        if ncode_val:
+            iter_params["naicsCode"] = ncode_val
+        resp = requests.get(SAM_AWARDS_BASE, params=iter_params, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_ncode = {executor.submit(fetch_for_ncode, code): code for code in ncode_list}
+        for future in concurrent.futures.as_completed(future_to_ncode):
+            try:
+                data = future.result()
+                try:
+                    total_records += int(data.get("totalRecords", 0))
+                except:
+                    pass
+                for award in data.get("awardSummary", []):
+                    piid = award.get("contractId", {}).get("piid")
+                    if piid and piid not in seen_ids:
+                        seen_ids.add(piid)
+                        all_awards.append(award)
+                    elif not piid:
+                        all_awards.append(award)
+            except Exception as e:
+                errors.append(str(e))
+
+    if not all_awards and errors:
+        return jsonify({
+            "error": "API Error", 
+            "message": "SAM.gov Awards API failed. " + errors[0]
+        }), 502
+
+    limit_int = 25
+    try: limit_int = int(limit) 
+    except: pass
+    
+    all_awards = all_awards[:limit_int]
+
+    return jsonify({
+        "totalRecords": total_records,
+        "awardSummary": all_awards,
+        "appliedFilters": {k: v for k, v in params.items() if k != "api_key"}
+    })
+
 @app.route("/api/export", methods=["POST"])
 def export_results():
     """Save the search results to a local CSV in the scrappings folder."""
@@ -311,8 +385,8 @@ def check_for_updates():
         time.sleep(60)
 
 if __name__ == "__main__":
-    print("\n🏛️  ScrapperGov — SAM.gov Contract Scraper")
-    print(f"   API Key: {'✅ Loaded' if SAM_API_KEY != 'DEMO_KEY' else '⚠️  Using DEMO_KEY (limited)'}")
+    print("\n[+] ScrapperGov - SAM.gov Contract Scraper")
+    print(f"   API Key: {'[Loaded]' if SAM_API_KEY != 'DEMO_KEY' else '[DEMO_KEY limited] '}")
     print(f"   Server:  http://localhost:5000\n")
     
     # Start the auto-updater in a background thread
