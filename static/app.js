@@ -149,6 +149,32 @@ function setupEventListeners() {
         currentPage++;
         performSearch(true);
     });
+    
+    els.btnExport.addEventListener('click', async () => {
+        if (!currentResults.length) return;
+        els.btnExport.disabled = true;
+        els.btnExport.innerHTML = `<span class="loader-ring" style="width:14px;height:14px;border-width:2px;position:relative;display:inline-block"></span> Saving...`;
+        
+        try {
+            const res = await fetch('/api/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ results: currentResults })
+            });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.message || data.error);
+            
+            els.btnExport.innerHTML = `✅ Saved!`;
+            setTimeout(() => {
+                 els.btnExport.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export CSV`;
+                 els.btnExport.disabled = false;
+            }, 3000);
+        } catch(e) {
+            alert('Failed to save: ' + e.message);
+            els.btnExport.innerHTML = `Export CSV`;
+            els.btnExport.disabled = false;
+        }
+    });
 
     els.modalClose.addEventListener('click', closeModal);
     els.modalOverlay.addEventListener('click', (e) => {
@@ -239,8 +265,11 @@ function displayResults(data) {
     if (currentResults.length === 0) {
         els.resultsList.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-secondary);">No opportunities found matching these filters.</div>`;
         els.resultsList.style.display = 'block';
+        els.btnExport.disabled = true;
         return;
     }
+    
+    els.btnExport.disabled = false;
 
     currentResults.forEach((opp, i) => {
         const card = document.createElement('div');

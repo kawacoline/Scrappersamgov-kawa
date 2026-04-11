@@ -5,6 +5,8 @@ Flask backend that proxies requests to the SAM.gov public API
 
 import os
 import sys
+import csv
+import json
 import time
 import requests
 import threading
@@ -202,6 +204,44 @@ def search_opportunities():
             "error": "Connection Error",
             "message": str(e),
         }), 502
+
+@app.route("/api/export", methods=["POST"])
+def export_results():
+    """Save the search results to a local CSV in the scrappings folder."""
+    data = request.json
+    results = data.get("results", [])
+    
+    if not results:
+        return jsonify({"message": "No data", "error": "No results to save."}), 400
+        
+    try:
+        # Create scrappings directory
+        os.makedirs("scrappings", exist_ok=True)
+        
+        # Name the file with a timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"scrappings/sam_contracts_{timestamp}.csv"
+        
+        # Define the properties we want to export
+        fieldnames = [
+            "noticeId", "solicitationNumber", "title", "department", "subTier", 
+            "postedDate", "responseDeadLine", "type", "naicsCode", 
+            "typeOfSetAsideDescription", "active", "uiLink"
+        ]
+        
+        with open(filename, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+            writer.writeheader()
+            for row in results:
+                # Fill in uiLink if empty
+                if not row.get("uiLink") or row["uiLink"] == "null":
+                    row["uiLink"] = f"https://sam.gov/opp/{row.get('noticeId')}/view"
+                writer.writerow(row)
+                
+        return jsonify({"message": "Success", "file": filename})
+        
+    except Exception as e:
+        return jsonify({"error": "Save Error", "message": str(e)}), 500
 
 
 def check_for_updates():
