@@ -11,6 +11,7 @@ import time
 import requests
 import threading
 import subprocess
+import concurrent.futures
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -153,6 +154,10 @@ def search_opportunities():
     if naics:
         params["ncode"] = naics
 
+    # Remove individual ncode string since we handle it dynamically
+    ncodes = request.args.get("ncode", "")
+    ncode_list = [n.strip() for n in ncodes.split(",")] if ncodes else [None]
+
     ccode = request.args.get("ccode")
     if ccode:
         params["ccode"] = ccode
@@ -181,29 +186,61 @@ def search_opportunities():
     if rdl_to:
         params["rdlto"] = rdl_to
 
-    try:
-        resp = requests.get(SAM_API_BASE, params=params, timeout=30)
+    # We will aggregate results using multi-threading
+    all_opps = []
+    total_records = 0
+    seen_ids = set()
+    errors = []
+
+    def fetch_for_ncode(ncode_val):
+        iter_params = params.copy()
+        if ncode_val:
+            iter_params["ncode"] = ncode_val
+        resp = requests.get(SAM_API_BASE, params=iter_params, timeout=30)
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()
 
-        # Enrich response with metadata
-        data["appliedFilters"] = {
-            k: v for k, v in params.items() if k != "api_key"
-        }
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_ncode = {executor.submit(fetch_for_ncode, code): code for code in ncode_list}
+        for future in concurrent.futures.as_completed(future_to_ncode):
+            try:
+                data = future.result()
+                try:
+                    total_records += int(data.get("totalRecords", 0))
+                except:
+                    pass
+                for opp in data.get("opportunitiesData", []):
+                    if opp["noticeId"] not in seen_ids:
+                        seen_ids.add(opp["noticeId"])
+                        all_opps.append(opp)
+            except Exception as e:
+                # Store the error mapping
+                errors.append(str(e))
 
-        return jsonify(data)
-
-    except requests.exceptions.HTTPError as e:
+    if not all_opps and errors:
         return jsonify({
-            "error": f"SAM.gov API Error: {e.response.status_code}",
-            "message": e.response.text if e.response else str(e),
-        }), e.response.status_code if e.response else 500
-
-    except requests.exceptions.RequestException as e:
-        return jsonify({
-            "error": "Connection Error",
-            "message": str(e),
+            "error": "API Error", 
+            "message": "SAM.gov API request failed. " + errors[0]
         }), 502
+
+    # Enforce limit back on the aggregated dataset to avoid exploding results per page
+    limit_int = 25
+    try: limit_int = int(limit) 
+    except: pass
+    
+    # Sort backwards by Date to maintain recency across combined results
+    try:
+        all_opps.sort(key=lambda x: x.get('postedDate', ''), reverse=True)
+    except:
+        pass
+        
+    all_opps = all_opps[:limit_int]
+
+    return jsonify({
+        "totalRecords": total_records,
+        "opportunitiesData": all_opps,
+        "appliedFilters": {k: v for k, v in params.items() if k != "api_key"}
+    })
 
 @app.route("/api/export", methods=["POST"])
 def export_results():
