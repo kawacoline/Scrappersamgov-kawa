@@ -382,6 +382,7 @@ def export_data():
                     'ObligatedAmount': float(d.get('awardDetails', {}).get('dollars', {}).get('actionObligation', 0) or 0),
                     'DateSigned': d.get('awardDetails', {}).get('dates', {}).get('dateSigned', 'N/A'),
                     'CageCode': aw_data.get('awardeeUEIInformation', {}).get('cageCode', 'N/A'),
+                    'SAM_URL': f"https://sam.gov/search/?index=cdo&keywords={d.get('contractId', {}).get('piid', '')}",
                 })
             if flat_data:
                 keys = flat_data[0].keys()

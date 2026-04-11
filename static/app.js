@@ -413,7 +413,7 @@ function openModal(index, mode) {
         const agency = item.coreData?.federalOrganization?.contractingInformation?.contractingOffice?.name || item.coreData?.fundingSubtierName || 'Federal Agency';
         const dateSigned = item.awardDetails?.dates?.dateSigned || item.coreData?.dateSigned;
         const dollars = item.awardDetails?.dollars?.actionObligation || item.awardDetails?.dollars?.totalContractDollars || 0;
-        const uiLink = `https://sam.gov/wage-determination/${piid}/view`; // Generic fallback
+        const uiLink = `https://sam.gov/search/?index=cdo&keywords=${encodeURIComponent(piid)}`;
 
         contentHtml = `
             <div class="m-header">
@@ -444,7 +444,7 @@ function openModal(index, mode) {
                     <div class="meta-value">${awData?.awardeeLocation?.streetAddress1 || ''} ${awData?.awardeeLocation?.city || ''}, ${awData?.awardeeLocation?.state?.code || ''}</div>
                 </div>
             </div>
-            <a href="https://sam.gov/" target="_blank" class="m-link">View Full Details on SAM.gov ↗</a>
+            <a href="${uiLink}" target="_blank" class="m-link">View Full Details on SAM.gov ↗</a>
         `;
     } else {
         const opp = item;
