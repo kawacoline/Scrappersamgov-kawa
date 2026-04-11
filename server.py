@@ -355,6 +355,56 @@ def export_results():
         return jsonify({"error": "Save Error", "message": str(e)}), 500
 
 
+
+@app.route('/api/export', methods=['POST'])
+def export_data():
+    try:
+        data = request.json.get('results', [])
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+            
+        import csv
+        from datetime import datetime
+        
+        os.makedirs('scraped_data', exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # Determine if these are awards or opportunities based on data shape
+        if len(data) > 0 and 'awardeeData' in data[0] or 'awardDetails' in data[0]:
+            filename = f'scraped_data/contract_awards_{timestamp}.csv'
+            # Flatten award data
+            flat_data = []
+            for d in data:
+                aw_data = d.get('awardDetails', {}).get('awardeeData', {})
+                flat_data.append({
+                    'PIID': d.get('contractId', {}).get('piid', 'N/A'),
+                    'Awardee': aw_data.get('awardeeHeader', {}).get('awardeeName') or aw_data.get('awardeeHeader', {}).get('legalBusinessName', 'UNKNOWN'),
+                    'ObligatedAmount': float(d.get('awardDetails', {}).get('dollars', {}).get('actionObligation', 0) or 0),
+                    'DateSigned': d.get('awardDetails', {}).get('dates', {}).get('dateSigned', 'N/A'),
+                    'CageCode': aw_data.get('awardeeUEIInformation', {}).get('cageCode', 'N/A'),
+                })
+            if flat_data:
+                keys = flat_data[0].keys()
+                with open(filename, 'w', newline='', encoding='utf-8') as output_file:
+                    dict_writer = csv.DictWriter(output_file, keys)
+                    dict_writer.writeheader()
+                    dict_writer.writerows(flat_data)
+            
+        else:
+            filename = f'scraped_data/bids_opportunities_{timestamp}.csv'
+            # Opportunities are already flat
+            if data:
+                # opportunities logic
+                keys = data[0].keys()
+                with open(filename, 'w', newline='', encoding='utf-8') as output_file:
+                    dict_writer = csv.DictWriter(output_file, keys)
+                    dict_writer.writeheader()
+                    dict_writer.writerows(data)
+            
+        return jsonify({'message': 'Success', 'filename': filename}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 def check_for_updates():
     """Background loop that polls Git for updates."""
     while True:
