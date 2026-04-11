@@ -150,6 +150,34 @@ function setupEventListeners() {
         performSearch(true);
     });
     
+    document.getElementById('settingsBtn').addEventListener('click', () => {
+        els.modalContent.innerHTML = `
+            <div class="m-header">
+                <h2 class="m-title">⚙️ Configuration & Settings</h2>
+            </div>
+            <div class="m-grid" style="grid-template-columns: 1fr;">
+                <div class="m-detail">
+                    <div class="meta-label">API Status</div>
+                    <div class="meta-value" style="display:flex;align-items:center;gap:8px; margin-top:8px;">
+                        <span style="width:10px;height:10px;display:inline-block;border-radius:50%;background:${config.has_api_key ? '#10b981' : '#f59e0b'};"></span>
+                        ${config.has_api_key ? 'API Key Loaded and Ready' : 'Using Demo Key (Limited Access)'}
+                    </div>
+                </div>
+                <div class="m-detail">
+                    <div class="meta-label">How to add a SAM.gov API Key</div>
+                    <div class="meta-value" style="font-size:0.9rem; color:var(--text-secondary); margin-top:12px; line-height: 1.6;">
+                        1. Log in to <a href="https://sam.gov" target="_blank" style="color:var(--accent-primary)">SAM.gov</a><br>
+                        2. Navigate to your <strong>Account Details</strong> profile page.<br>
+                        3. Scroll down to <strong>Public API Key</strong> and generate a new key.<br>
+                        4. Open the <code>.env</code> file inside the Scrappergov folder on your desktop.<br>
+                        5. Replace <code>DEMO_KEY</code> with your actual key and save the file.<br>
+                    </div>
+                </div>
+            </div>
+        `;
+        els.modalOverlay.style.display = 'flex';
+    });
+    
     els.btnExport.addEventListener('click', async () => {
         if (!currentResults.length) return;
         els.btnExport.disabled = true;
