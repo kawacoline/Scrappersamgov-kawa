@@ -4,7 +4,11 @@ Flask backend that proxies requests to the SAM.gov public API
 """
 
 import os
+import sys
+import time
 import requests
+import threading
+import subprocess
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -200,8 +204,42 @@ def search_opportunities():
         }), 502
 
 
+def check_for_updates():
+    """Background loop that polls Git for updates."""
+    while True:
+        try:
+            # Fetch latest from origin
+            subprocess.run(["git", "fetch"], check=True, capture_output=True)
+            
+            # Check if main is behind origin/main
+            result = subprocess.run(
+                ["git", "status", "-uno"], 
+                capture_output=True, 
+                text=True, 
+                check=True
+            )
+            
+            # If "Your branch is behind" is in the output, we need to update
+            if "Your branch is behind" in result.stdout:
+                print("\n[UPDATER] 🚀 New update found on GitHub!")
+                print("[UPDATER] Gracefully shutting down the server to restart...")
+                # Exit with code 42 so the start.bat script knows to pull and restart
+                os._exit(42)
+                
+        except Exception as e:
+            # If git fails (e.g. no internet), just suppress and try again later
+            pass
+            
+        # Check every 60 seconds
+        time.sleep(60)
+
 if __name__ == "__main__":
     print("\n🏛️  ScrapperGov — SAM.gov Contract Scraper")
     print(f"   API Key: {'✅ Loaded' if SAM_API_KEY != 'DEMO_KEY' else '⚠️  Using DEMO_KEY (limited)'}")
     print(f"   Server:  http://localhost:5000\n")
-    app.run(debug=True, port=5000)
+    
+    # Start the auto-updater in a background thread
+    updater_thread = threading.Thread(target=check_for_updates, daemon=True)
+    updater_thread.start()
+    
+    app.run(debug=False, port=5000)
