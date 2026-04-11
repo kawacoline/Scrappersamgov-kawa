@@ -309,7 +309,8 @@ function displayResults(data, mode) {
         card.onclick = () => openModal(i, mode);
 
         if (mode === 'past') {
-            const awardeeName = item.awardeeData?.awardeeHeader?.awardeeName || item.awardeeData?.awardeeHeader?.legalBusinessName || 'Unknown Awardee';
+            const awData = item.awardDetails?.awardeeData || {};
+            const awardeeName = awData?.awardeeHeader?.awardeeName || awData?.awardeeHeader?.legalBusinessName || 'Unknown Awardee';
             const piid = item.contractId?.piid || 'N/A';
             const agency = item.coreData?.fundingSubtierName || item.coreData?.contractingDepartmentName || 'Federal Agency';
             const dollars = item.awardDetails?.dollars?.actionObligation || item.awardDetails?.dollars?.totalContractDollars || 0;
@@ -406,9 +407,10 @@ function openModal(index, mode) {
     let contentHtml = '';
 
     if (mode === 'past') {
-        const awardeeName = item.awardeeData?.awardeeHeader?.awardeeName || item.awardeeData?.awardeeHeader?.legalBusinessName || 'Unknown Awardee';
+        const awData = item.awardDetails?.awardeeData || {};
+        const awardeeName = awData?.awardeeHeader?.awardeeName || awData?.awardeeHeader?.legalBusinessName || 'Unknown Awardee';
         const piid = item.contractId?.piid || 'N/A';
-        const agency = item.coreData?.fundingSubtierName || item.coreData?.contractingDepartmentName || 'Federal Agency';
+        const agency = item.coreData?.federalOrganization?.contractingInformation?.contractingOffice?.name || item.coreData?.fundingSubtierName || 'Federal Agency';
         const dateSigned = item.awardDetails?.dates?.dateSigned || item.coreData?.dateSigned;
         const dollars = item.awardDetails?.dollars?.actionObligation || item.awardDetails?.dollars?.totalContractDollars || 0;
         const uiLink = `https://sam.gov/wage-determination/${piid}/view`; // Generic fallback
@@ -423,11 +425,11 @@ function openModal(index, mode) {
             <div class="m-grid">
                 <div class="m-detail">
                     <div class="meta-label">Awardee UEI</div>
-                    <div class="meta-value mono">${item.awardeeData?.awardeeUEIInformation?.uniqueEntityId || 'N/A'}</div>
+                    <div class="meta-value mono">${awData?.awardeeUEIInformation?.uniqueEntityId || 'N/A'}</div>
                 </div>
                 <div class="m-detail">
                     <div class="meta-label">Cage Code</div>
-                    <div class="meta-value mono">${item.awardeeData?.awardeeUEIInformation?.cageCode || 'N/A'}</div>
+                    <div class="meta-value mono">${awData?.awardeeUEIInformation?.cageCode || 'N/A'}</div>
                 </div>
                 <div class="m-detail">
                     <div class="meta-label">Date Signed</div>
@@ -439,7 +441,7 @@ function openModal(index, mode) {
                 </div>
                 <div class="m-detail" style="grid-column: span 2;">
                     <div class="meta-label">Address</div>
-                    <div class="meta-value">${item.awardeeData?.awardeeLocation?.streetAddress1 || ''} ${item.awardeeData?.awardeeLocation?.city || ''}, ${item.awardeeData?.awardeeLocation?.state?.code || ''}</div>
+                    <div class="meta-value">${awData?.awardeeLocation?.streetAddress1 || ''} ${awData?.awardeeLocation?.city || ''}, ${awData?.awardeeLocation?.state?.code || ''}</div>
                 </div>
             </div>
             <a href="https://sam.gov/" target="_blank" class="m-link">View Full Details on SAM.gov ↗</a>
