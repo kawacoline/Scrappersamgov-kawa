@@ -377,11 +377,26 @@ def get_intelligence():
         
         result_json = json.loads(response.text)
         
-        # 3. Save locally to project root
+        # 3. Save locally as a readable .txt file
         os.makedirs("scraped_data", exist_ok=True)
-        local_filename = f"scraped_data/AI_Report_{notice_id}.json"
+        local_filename = f"scraped_data/AI_Report_{notice_id}.txt"
+        
         with open(local_filename, "w", encoding="utf-8") as f:
-            json.dump(result_json, f, indent=4)
+            f.write(f"=== CONTRACT AI INTELLIGENCE REPORT ===\n")
+            f.write(f"Notice ID: {notice_id}\n")
+            f.write(f"Title: {contract_title}\n")
+            f.write(f"---------------------------------------\n")
+            f.write(f"DIFFICULTY SCORE: {result_json.get('difficulty_score', 'N/A')}/100\n")
+            f.write(f"ETA WEEKS: {result_json.get('eta_weeks', 'N/A')}\n")
+            
+            reqs = result_json.get('missing_requirements', [])
+            req_str = ', '.join(reqs) if isinstance(reqs, list) else reqs
+            f.write(f"MISSING REQUIREMENTS: {req_str}\n")
+            
+            f.write(f"NOTES: {result_json.get('notes', 'N/A')}\n")
+            f.write(f"---------------------------------------\n\n")
+            f.write(f"=== PROPOSAL TEMPLATE ===\n\n")
+            f.write(result_json.get('proposal_template', 'Error generating template.'))
             
         return jsonify({"status": "success", "data": result_json, "file_saved": local_filename})
         
