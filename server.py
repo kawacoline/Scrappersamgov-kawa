@@ -366,9 +366,9 @@ def get_intelligence():
         }}
         """
         
-        # Using gemini-2.5-pro as it's the stable advanced reasoning model 
+        # Using gemini-3-flash-preview as requested
         response = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model='gemini-3-flash-preview',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
