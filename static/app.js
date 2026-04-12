@@ -498,14 +498,83 @@ function openModal(index, mode) {
         } else {
             contentHtml += `<em>No point of contact listed in API.</em>`;
         }
-        
         contentHtml += `</div>
+            <div style="margin-bottom: 24px; display: flex; flex-direction: column; gap: 12px;">
+                <button class="btn btn-primary" id="generateAidBtn" style="border: 1px solid var(--accent-primary);">
+                    ✨ AI: Generate Difficulty Report & Proposal
+                </button>
+                <div id="aiIntelligenceBox" style="display:none; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:16px;">
+                    <div style="display:flex; justify-content:center; align-items:center;" id="aiLoader">
+                        <div class="loader-ring" style="width:24px; height:24px; border-width:2px; margin-right: 8px; border-color: var(--accent-primary) transparent transparent transparent;"></div>
+                        Loading AI Intelligence...
+                    </div>
+                    <div id="aiContent" style="display:none;"></div>
+                </div>
+            </div>
             <a href="${uiLink}" target="_blank" class="m-link">View Full Details on SAM.gov ↗</a>
         `;
     }
 
     els.modalContent.innerHTML = contentHtml;
+    
+    const aiBtn = document.getElementById('generateAidBtn');
+    if (aiBtn && mode !== 'past') {
+        const oppCopy = item;
+        aiBtn.addEventListener('click', () => window.generateIntelligence(oppCopy.noticeId, oppCopy.title));
+    }
+
     els.modalOverlay.style.display = 'flex';
+}
+
+window.generateIntelligence = async (noticeId, title) => {
+    const btn = document.getElementById('generateAidBtn');
+    const box = document.getElementById('aiIntelligenceBox');
+    const loader = document.getElementById('aiLoader');
+    const content = document.getElementById('aiContent');
+    
+    btn.style.display = 'none';
+    box.style.display = 'block';
+    loader.style.display = 'flex';
+    content.style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/intelligence', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({noticeId, title})
+        });
+        const result = await response.json();
+        
+        if (!response.ok) throw new Error(result.error || result.message);
+        
+        loader.style.display = 'none';
+        content.style.display = 'block';
+        
+        const d = result.data;
+        const missingReqs = Array.isArray(d.missing_requirements) ? d.missing_requirements.join(', ') : d.missing_requirements;
+        
+        content.innerHTML = `
+            <div style="margin-bottom: 16px;">
+                <h3 style="margin-bottom: 8px; color: var(--accent-primary);">Difficulty Score: ${d.difficulty_score}/100</h3>
+                <p style="margin-bottom:4px;"><strong>ETA:</strong> ${d.eta_weeks}</p>
+                <p style="margin-bottom:4px;"><strong>Missing Requirements:</strong> ${missingReqs || 'None stated'}</p>
+                <p style="margin-bottom:4px; font-size:0.9em; opacity:0.8;"><strong>Notes:</strong> ${d.notes}</p>
+            </div>
+            <hr style="border-color: rgba(255,255,255,0.1); margin: 16px 0;">
+            <div>
+                <h3 style="margin-bottom: 8px;">Proposal Template</h3>
+                <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 4px; white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; font-size: 0.9em; max-height: 350px; overflow-y: auto;">${(d.proposal_template || '').replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+                <p style="font-size: 0.8em; color: var(--accent-primary); margin-top: 12px;">✅ Saved locally to: ${result.file_saved}</p>
+            </div>
+        `;
+        
+    } catch (e) {
+        loader.style.display = 'none';
+        content.style.display = 'block';
+        content.innerHTML = `<div style="color:#ff6b6b; padding:12px; background:rgba(255,0,0,0.1); border-radius:4px;">Error: ${e.message}</div>`;
+        btn.style.display = 'block';
+        btn.textContent = 'Retry Intelligence Generation';
+    }
 }
 
 function closeModal() {

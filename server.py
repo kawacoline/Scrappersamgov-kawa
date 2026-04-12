@@ -316,43 +316,77 @@ def search_awards():
         "appliedFilters": {k: v for k, v in params.items() if k != "api_key"}
     })
 
-@app.route("/api/export", methods=["POST"])
-def export_results():
-    """Save the search results to a local CSV in the scrappings folder."""
+@app.route("/api/intelligence", methods=["POST"])
+def get_intelligence():
+    """Gemini AI Route: Generates Proposal Template and Difficulty Report"""
     data = request.json
-    results = data.get("results", [])
+    notice_id = data.get("noticeId")
+    contract_title = data.get("title", "")
     
-    if not results:
-        return jsonify({"message": "No data", "error": "No results to save."}), 400
-        
+    if not notice_id:
+        return jsonify({"error": "No noticeId provided"}), 400
+
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key or "AIza" not in gemini_key:
+        return jsonify({"error": "Missing or invalid GEMINI_API_KEY in .env"}), 500
+
+    # 1. Fetch the description text from SAM.gov
+    desc_text = "No detailed description provided by SAM.gov API."
     try:
-        # Create scrappings directory
-        os.makedirs("scrappings", exist_ok=True)
+        desc_url = f"https://api.sam.gov/prod/opportunities/v1/noticedesc?noticeid={notice_id}&api_key={API_KEY}"
+        desc_res = requests.get(desc_url, timeout=15)
+        if desc_res.status_code == 200:
+            desc_text = json.dumps(desc_res.json())
+    except Exception as e:
+        print(f"Error fetching desc: {e}")
+
+    # 2. Call Gemini
+    try:
+        from google import genai
+        from google.genai import types
         
-        # Name the file with a timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"scrappings/sam_contracts_{timestamp}.csv"
+        client = genai.Client(api_key=gemini_key)
         
-        # Define the properties we want to export
-        fieldnames = [
-            "noticeId", "solicitationNumber", "title", "department", "subTier", 
-            "postedDate", "responseDeadLine", "type", "naicsCode", 
-            "typeOfSetAsideDescription", "active", "uiLink"
-        ]
+        prompt = f"""
+        You are an expert Government Contracting Analyst and Proposal Writer.
+        Analyze the following Active Contract Bid (Title: {contract_title}, Notice ID: {notice_id}) and its textual description:
+        {desc_text[:20000]}
         
-        with open(filename, mode='w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
-            writer.writeheader()
-            for row in results:
-                # Fill in uiLink if empty
-                if not row.get("uiLink") or row["uiLink"] == "null":
-                    row["uiLink"] = f"https://sam.gov/opp/{row.get('noticeId')}/view"
-                writer.writerow(row)
-                
-        return jsonify({"message": "Success", "file": filename})
+        Task 1: Difficulty Report. Cross-reference the requirements. Calculate how long it would take to acquire necessary certifications/vendor approvals. 
+        Assign a 'difficulty_score' out of 100 based strictly on wait times and requirements. Explicitly mention if you cannot find enough info to give a solid number.
+        Task 2: Draft a Proposal Template. Base your wording and style on winning templates from GAO protests or FOIA Reading Rooms for similar tech contracts.
+        
+        Return pure JSON with EXACTLY this structure (no markdown formatting):
+        {{
+            "difficulty_score": <number 1-100>,
+            "eta_weeks": "<string, e.g. '3-6 weeks'>",
+            "missing_requirements": ["list", "of", "missing", "certifications", "or", "requirements"],
+            "notes": "<string explaining where info is missing or solid>",
+            "proposal_template": "<markdown formatted string of a proposal draft>"
+        }}
+        """
+        
+        # Using gemini-2.5-pro as it's the stable advanced reasoning model 
+        response = client.models.generate_content(
+            model='gemini-2.5-pro',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
+        )
+        
+        result_json = json.loads(response.text)
+        
+        # 3. Save locally to project root
+        os.makedirs("scraped_data", exist_ok=True)
+        local_filename = f"scraped_data/AI_Report_{notice_id}.json"
+        with open(local_filename, "w", encoding="utf-8") as f:
+            json.dump(result_json, f, indent=4)
+            
+        return jsonify({"status": "success", "data": result_json, "file_saved": local_filename})
         
     except Exception as e:
-        return jsonify({"error": "Save Error", "message": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
 
