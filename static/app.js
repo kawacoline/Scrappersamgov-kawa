@@ -257,12 +257,15 @@ async function performSearch(isPagination = false) {
             const past30 = new Date();
             past30.setDate(today.getDate() - 30);
             
+            const past350 = new Date();
+            past350.setDate(today.getDate() - 350);
+            
             currentFilters.rdlfrom = formatDateForApi(past180.toISOString().split('T')[0]);
             currentFilters.rdlto = formatDateForApi(past30.toISOString().split('T')[0]);
             
-            // Clear standard posted dates so we don't accidentally filter out old active posts
-            delete currentFilters.postedFrom;
-            delete currentFilters.postedTo;
+            // Required by SAM.gov API: posted dates are mandatory
+            currentFilters.postedFrom = formatDateForApi(past350.toISOString().split('T')[0]);
+            currentFilters.postedTo = formatDateForApi(today.toISOString().split('T')[0]);
         }
         
         // Count active visual filters
