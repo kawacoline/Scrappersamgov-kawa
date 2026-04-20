@@ -248,6 +248,23 @@ async function performSearch(isPagination = false) {
             rdlto: formatDateForApi(els.rTo.value),
         };
         
+        // Low Hanging Fruit Override
+        if (currentMode === 'lowHanging') {
+            const today = new Date();
+            const past180 = new Date();
+            past180.setDate(today.getDate() - 180);
+            
+            const past30 = new Date();
+            past30.setDate(today.getDate() - 30);
+            
+            currentFilters.rdlfrom = formatDateForApi(past180.toISOString().split('T')[0]);
+            currentFilters.rdlto = formatDateForApi(past30.toISOString().split('T')[0]);
+            
+            // Clear standard posted dates so we don't accidentally filter out old active posts
+            delete currentFilters.postedFrom;
+            delete currentFilters.postedTo;
+        }
+        
         // Count active visual filters
         let c = 0;
         if(currentFilters.title) c++;
