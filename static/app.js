@@ -530,6 +530,17 @@ function openModal(index, mode) {
                     </div>
                     <div id="aiContent" style="display:none;"></div>
                 </div>
+
+                <button class="btn btn-secondary" id="sourcePartsBtn" style="border: 1px solid var(--text-muted);">
+                    🛒 Auto-Source Parts
+                </button>
+                <div id="sourcePartsBox" style="display:none; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:16px;">
+                    <div style="display:flex; justify-content:center; align-items:center;" id="sourceLoader">
+                        <div class="loader-ring" style="width:24px; height:24px; border-width:2px; margin-right: 8px; border-color: var(--text-primary) transparent transparent transparent;"></div>
+                        Scanning Commercial Suppliers...
+                    </div>
+                    <div id="sourceContent" style="display:none;"></div>
+                </div>
             </div>
             <a href="${uiLink}" target="_blank" class="m-link">View Full Details on SAM.gov ↗</a>
         `;
@@ -541,6 +552,13 @@ function openModal(index, mode) {
     if (aiBtn && mode !== 'past') {
         const oppCopy = item;
         aiBtn.addEventListener('click', () => window.generateIntelligence(oppCopy.noticeId, oppCopy.title));
+    }
+    
+    const sourceBtn = document.getElementById('sourcePartsBtn');
+    if (sourceBtn && mode !== 'past') {
+        const oppCopy = item;
+        // In a real scenario we might ping /noticedesc first to get the description, but here we'll pass noticeId or title
+        sourceBtn.addEventListener('click', () => window.sourceParts(oppCopy.title, oppCopy.description || ''));
     }
 
     els.modalOverlay.style.display = 'flex';
@@ -594,6 +612,70 @@ window.generateIntelligence = async (noticeId, title) => {
         content.innerHTML = `<div style="color:#ff6b6b; padding:12px; background:rgba(255,0,0,0.1); border-radius:4px;">Error: ${e.message}</div>`;
         btn.style.display = 'block';
         btn.textContent = 'Retry Intelligence Generation';
+    }
+}
+
+window.sourceParts = async (title, description) => {
+    const btn = document.getElementById('sourcePartsBtn');
+    const box = document.getElementById('sourcePartsBox');
+    const loader = document.getElementById('sourceLoader');
+    const content = document.getElementById('sourceContent');
+    
+    btn.style.display = 'none';
+    box.style.display = 'block';
+    loader.style.display = 'flex';
+    content.style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/source_parts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({title, description})
+        });
+        const result = await response.json();
+        
+        if (!response.ok) throw new Error(result.error || result.message);
+        
+        loader.style.display = 'none';
+        content.style.display = 'block';
+        
+        const part = result.part_details;
+        if (!part.has_specific_part) {
+            content.innerHTML = `<div style="color:var(--text-muted); text-align:center;">No specific physical part found to source.</div>`;
+            return;
+        }
+        
+        let html = `
+            <h3 style="margin-bottom: 8px;">Found Part: <span style="color: var(--accent-primary);">${part.part_number}</span></h3>
+            <p style="margin-bottom: 12px; font-size: 0.9em; color: var(--text-muted);">Manufacturer: ${part.manufacturer}</p>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+        `;
+        
+        if (result.sources && result.sources.length > 0) {
+            result.sources.forEach(src => {
+                html += `
+                    <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 4px; border-left: 3px solid var(--accent-primary);">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                            <strong>${src.supplier}</strong>
+                            <span style="color:#4cd137; font-weight:bold;">${src.price}</span>
+                        </div>
+                        <div style="font-size:0.85em; color:var(--text-muted); margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${src.snippet}</div>
+                        <a href="${src.url}" target="_blank" style="font-size:0.85em; color:var(--accent-primary); text-decoration:none;">View Product ↗</a>
+                    </div>
+                `;
+            });
+        } else {
+            html += `<div style="color:var(--text-muted);">No commercial sources found online.</div>`;
+        }
+        html += `</div>`;
+        content.innerHTML = html;
+        
+    } catch (e) {
+        loader.style.display = 'none';
+        content.style.display = 'block';
+        content.innerHTML = `<div style="color:#ff6b6b; padding:12px; background:rgba(255,0,0,0.1); border-radius:4px;">Error: ${e.message}</div>`;
+        btn.style.display = 'block';
+        btn.textContent = 'Retry Auto-Source';
     }
 }
 

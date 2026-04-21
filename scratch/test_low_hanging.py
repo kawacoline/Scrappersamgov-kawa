@@ -62,7 +62,7 @@ try:
             print(f"[{idx+1}] {title}")
             print(f"    Agency: {dept}")
             print(f"    Solicitation Number: {sol_num}")
-            print(f"    ⭐ DEADLINE EXPIRED ON: {dead}")
+            print(f"    * DEADLINE EXPIRED ON: {dead}")
             print("-" * 50)
 
 except Exception as e:

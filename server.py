@@ -404,6 +404,120 @@ def get_intelligence():
         return jsonify({"error": str(e)}), 500
 
 
+def duckduckgo_scrape(query):
+    import requests
+    from bs4 import BeautifulSoup
+    import re
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    url = 'https://html.duckduckgo.com/html/'
+    data = {'q': f"{query} price"}
+    
+    try:
+        response = requests.post(url, headers=headers, data=data)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        results = soup.find_all('div', class_='result__body')
+        
+        sources = []
+        for result in results[:5]: 
+            title_el = result.find('a', class_='result__url')
+            if not title_el:
+                continue
+                
+            link = title_el.get('href')
+            match = re.search(r'uddg=(.*?)(&|$)', link)
+            if match:
+                import urllib.parse
+                link = urllib.parse.unquote(match.group(1))
+            else:
+                link = f"https://{title_el.text.strip()}"
+                
+            snippet_el = result.find('a', class_='result__snippet')
+            snippet = snippet_el.text.strip() if snippet_el else ""
+            
+            domain_match = re.search(r'https?://(?:www\.)?([^/]+)', link)
+            supplier = domain_match.group(1) if domain_match else "Unknown"
+            
+            sources.append({
+                "supplier": supplier,
+                "price": "Check Link",
+                "url": link,
+                "snippet": snippet
+            })
+            
+        return sources
+    except Exception as e:
+        print(f"Scraper error: {e}")
+        return []
+
+@app.route('/api/source_parts', methods=['POST'])
+def source_parts():
+    try:
+        from google import genai
+        from google.genai import types
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_key:
+            return jsonify({"error": "GEMINI_API_KEY not configured"}), 500
+            
+        client = genai.Client(api_key=gemini_key)
+        
+        data = request.json
+        contract_title = data.get('title', '')
+        desc_text = data.get('description', '')
+        
+        if not desc_text:
+            return jsonify({"error": "No description provided to extract part."}), 400
+            
+        prompt = f"""
+        You are an expert Government Parts Sourcing Agent.
+        Analyze this contract title and description:
+        Title: {contract_title}
+        Description: {desc_text[:10000]}
+        
+        Identify if there is a SPECIFIC physical part, tool, or product being requested that we can buy from a commercial supplier (e.g. Dewalt Drill, MJU-76B flare, specific medical device).
+        Do NOT guess if it's a general service. If it is a service, set has_specific_part to false.
+        
+        Return pure JSON with EXACTLY this structure:
+        {{
+            "has_specific_part": true or false,
+            "part_number": "<the exact part number, NSN, or precise name to search>",
+            "manufacturer": "<brand name if known, else Unknown>"
+        }}
+        """
+        
+        response = client.models.generate_content(
+            model='gemini-3.0-pro',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
+        )
+        
+        result_json = json.loads(response.text)
+        
+        if not result_json.get("has_specific_part"):
+            return jsonify({
+                "status": "success", 
+                "message": "No specific physical part found to source.", 
+                "part_details": result_json,
+                "sources": []
+            })
+            
+        query = f"{result_json.get('manufacturer', '')} {result_json.get('part_number', '')}".strip()
+        sources = duckduckgo_scrape(query)
+        
+        return jsonify({
+            "status": "success",
+            "part_details": result_json,
+            "sources": sources
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/export', methods=['POST'])
 def export_data():
