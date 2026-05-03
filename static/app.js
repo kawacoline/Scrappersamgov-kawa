@@ -746,7 +746,7 @@ window.draftOutreach = async (partName, supplierEmail) => {
         const data = await res.json();
         
         if (data.status === 'draft') {
-            const mailto = \`mailto:\${supplierEmail}?subject=\${encodeURIComponent(data.subject)}&body=\${encodeURIComponent(data.body)}\`;
+            const mailto = `mailto:${supplierEmail}?subject=${encodeURIComponent(data.subject)}&body=${encodeURIComponent(data.body)}`;
             window.location.href = mailto;
         } else if (data.status === 'success') {
             alert('Email sent successfully via SMTP!');
