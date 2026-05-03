@@ -58,6 +58,11 @@ NAICS_PRESETS = {
         "label": "Maintenance & Janitorial",
         "codes": ["561720", "561210", "561730", "561740", "238220"],
         "description": "Janitorial, facilities support, landscaping, pest control"
+    },
+    "construction_repairs": {
+        "label": "Construction & Repairs",
+        "codes": ["236220", "238160", "238210", "238220", "238320", "238350", "238990"],
+        "description": "Building construction, carpentry, doors, roofing, electrical, plumbing"
     }
 }
 
