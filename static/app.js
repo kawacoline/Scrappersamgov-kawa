@@ -37,6 +37,7 @@ const els = {
     showing: document.getElementById('showingResults'),
     activeF: document.getElementById('activeFilters'),
     btnExport: document.getElementById('exportBtn'),
+    btnBulkScan: document.getElementById('bulkScanBtn'),
     
     // Pagination
     btnPrev: document.getElementById('prevPage'),
@@ -204,6 +205,57 @@ function setupEventListeners() {
         }
     });
 
+    els.btnBulkScan.addEventListener('click', async () => {
+        if (!currentResults.length || currentMode === 'past') return;
+        
+        els.btnBulkScan.disabled = true;
+        els.btnBulkScan.innerHTML = `<span class="loader-ring" style="width:14px;height:14px;border-width:2px;position:relative;display:inline-block;border-color:var(--text-primary) transparent transparent transparent"></span> Scanning...`;
+        
+        try {
+            const oppsToScan = currentResults.slice(0, 10).map(o => ({
+                noticeId: o.noticeId || o.solicitationNumber,
+                title: o.title
+            }));
+            
+            const res = await fetch('/api/bulk_scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ opportunities: oppsToScan })
+            });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.message || data.error);
+            
+            els.btnBulkScan.innerHTML = `✨ AI Bulk Scan (Top 10)`;
+            els.btnBulkScan.disabled = false;
+            
+            // Apply results to cards
+            if(data.data && data.data.length > 0) {
+                data.data.forEach(result => {
+                    // Find the card
+                    const idx = currentResults.findIndex(o => (o.noticeId || o.solicitationNumber) === result.noticeId);
+                    if(idx !== -1) {
+                        const card = els.resultsList.children[idx];
+                        if (card) {
+                            let color = 'var(--accent-primary)';
+                            if (result.difficulty === 'Medium') color = '#f59e0b';
+                            if (result.difficulty === 'Hard') color = '#ff6b6b';
+                            
+                            const badgeHtml = `<div style="margin-top:12px; padding:8px; border-radius:4px; background:rgba(0,0,0,0.2); border-left: 3px solid ${color};">
+                                <strong style="color:${color}">${result.difficulty} (${result.score}/100)</strong> - ${result.reason}
+                            </div>`;
+                            card.innerHTML += badgeHtml;
+                        }
+                    }
+                });
+            }
+            
+        } catch(e) {
+            alert('Bulk Scan failed: ' + e.message);
+            els.btnBulkScan.innerHTML = `✨ AI Bulk Scan (Top 10)`;
+            els.btnBulkScan.disabled = false;
+        }
+    });
+
     els.modalClose.addEventListener('click', closeModal);
     els.modalOverlay.addEventListener('click', (e) => {
         if (e.target === els.modalOverlay) closeModal();
@@ -318,10 +370,12 @@ function displayResults(data, mode) {
         els.resultsList.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-secondary);">No results found matching these filters.</div>`;
         els.resultsList.style.display = 'block';
         els.btnExport.disabled = true;
+        els.btnBulkScan.style.display = 'none';
         return;
     }
     
     els.btnExport.disabled = false;
+    els.btnBulkScan.style.display = mode === 'past' ? 'none' : 'flex';
 
     currentResults.forEach((item, i) => {
         const card = document.createElement('div');
@@ -660,7 +714,10 @@ window.sourceParts = async (title, description) => {
                             <span style="color:#4cd137; font-weight:bold;">${src.price}</span>
                         </div>
                         <div style="font-size:0.85em; color:var(--text-muted); margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${src.snippet}</div>
-                        <a href="${src.url}" target="_blank" style="font-size:0.85em; color:var(--accent-primary); text-decoration:none;">View Product ↗</a>
+                        <div style="display:flex; gap:8px;">
+                            <a href="${src.url}" target="_blank" style="font-size:0.85em; color:var(--accent-primary); text-decoration:none;">View Product ↗</a>
+                            <a href="javascript:void(0)" onclick="window.draftOutreach('${part.part_number}', 'supplier@example.com')" style="font-size:0.85em; color:#fff; text-decoration:underline;">Contact Supplier (RFQ)</a>
+                        </div>
                     </div>
                 `;
             });
@@ -676,6 +733,28 @@ window.sourceParts = async (title, description) => {
         content.innerHTML = `<div style="color:#ff6b6b; padding:12px; background:rgba(255,0,0,0.1); border-radius:4px;">Error: ${e.message}</div>`;
         btn.style.display = 'block';
         btn.textContent = 'Retry Auto-Source';
+    }
+}
+
+window.draftOutreach = async (partName, supplierEmail) => {
+    try {
+        const res = await fetch('/api/supplier_outreach', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ part_name: partName, supplier_email: supplierEmail, send_auto: false })
+        });
+        const data = await res.json();
+        
+        if (data.status === 'draft') {
+            const mailto = \`mailto:\${supplierEmail}?subject=\${encodeURIComponent(data.subject)}&body=\${encodeURIComponent(data.body)}\`;
+            window.location.href = mailto;
+        } else if (data.status === 'success') {
+            alert('Email sent successfully via SMTP!');
+        } else {
+            alert('Error generating email: ' + data.error);
+        }
+    } catch(e) {
+        alert('Failed to trigger outreach: ' + e.message);
     }
 }
 

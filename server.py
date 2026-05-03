@@ -339,6 +339,36 @@ def get_intelligence():
             desc_text = json.dumps(desc_res.json())
     except Exception as e:
         print(f"Error fetching desc: {e}")
+        
+    # 1.5. Fetch attached PDF documents (resourceLinks)
+    pdf_text = ""
+    try:
+        opp_url = f"https://api.sam.gov/opportunities/v2/search?api_key={API_KEY}&noticeId={notice_id}"
+        opp_res = requests.get(opp_url, timeout=15)
+        if opp_res.status_code == 200:
+            opp_data = opp_res.json()
+            if opp_data.get("opportunitiesData"):
+                resource_links = opp_data["opportunitiesData"][0].get("resourceLinks", [])
+                
+                if resource_links:
+                    import io
+                    import PyPDF2
+                    print(f"Found {len(resource_links)} attachments, attempting to read them...")
+                    for link in resource_links[:3]: # Limit to first 3 attachments to avoid massive token counts
+                        try:
+                            # Attachments usually require API key
+                            pdf_link = link if "api_key=" in link else f"{link}?api_key={API_KEY}"
+                            pdf_res = requests.get(pdf_link, timeout=15)
+                            if pdf_res.status_code == 200 and b"%PDF" in pdf_res.content[:10]:
+                                pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_res.content))
+                                for page in pdf_reader.pages:
+                                    extracted = page.extract_text()
+                                    if extracted:
+                                        pdf_text += extracted + "\n"
+                        except Exception as e:
+                            print(f"Error reading attachment {link}: {e}")
+    except Exception as e:
+        print(f"Error fetching attachments: {e}")
 
     # 2. Call Gemini
     try:
@@ -349,12 +379,24 @@ def get_intelligence():
         
         prompt = f"""
         You are an expert Government Contracting Analyst and Proposal Writer.
-        Analyze the following Active Contract Bid (Title: {contract_title}, Notice ID: {notice_id}) and its textual description:
-        {desc_text[:20000]}
+        Analyze the following Active Contract Bid (Title: {contract_title}, Notice ID: {notice_id}).
+        
+        Textual Description:
+        {desc_text[:15000]}
+        
+        Attached PDF Document Content (if any):
+        {pdf_text[:15000]}
+        
         
         Task 1: Difficulty Report. Cross-reference the requirements. Calculate how long it would take to acquire necessary certifications/vendor approvals. 
         Assign a 'difficulty_score' out of 100 based strictly on wait times and requirements. Explicitly mention if you cannot find enough info to give a solid number.
-        Task 2: Draft a Proposal Template. Base your wording and style on winning templates from GAO protests or FOIA Reading Rooms for similar tech contracts.
+        
+        Task 2: Draft a Proposal Template. Base your wording and style on winning templates from GAO protests or FOIA Reading Rooms for similar tech/supply contracts.
+        Important Company Information to inject into the template:
+        - Company Name: The Nomad Trader
+        - Email: [User's Name]@thenomadtrader.net
+        - Pricing Strategy: Add placeholders for sourced parts and explicitly apply a 60% markup baseline to the final cost.
+        Make the template ready for submission, only leaving bracketed placeholders like [INSERT SOURCED PRICE HERE] where physical parts or API pricing is missing.
         
         Return pure JSON with EXACTLY this structure (no markdown formatting):
         {{
@@ -403,6 +445,131 @@ def get_intelligence():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/bulk_scan', methods=['POST'])
+def bulk_scan():
+    API_KEY = os.getenv('SAM_API_KEY')
+    gemini_key = os.getenv('GEMINI_API_KEY')
+    
+    if not gemini_key:
+        return jsonify({"error": "Gemini API key is missing. Add GEMINI_API_KEY to .env"}), 400
+        
+    data = request.json
+    opportunities = data.get('opportunities', [])
+    
+    if not opportunities:
+        return jsonify({"error": "No opportunities provided."}), 400
+        
+    # Limit to 10 at a time to prevent timeout
+    opportunities = opportunities[:10]
+    
+    # 1. Fetch descriptions
+    context_blocks = []
+    for opp in opportunities:
+        nid = opp.get('noticeId')
+        title = opp.get('title')
+        desc_text = "No detailed description."
+        try:
+            desc_url = f"https://api.sam.gov/prod/opportunities/v1/noticedesc?noticeid={nid}&api_key={API_KEY}"
+            desc_res = requests.get(desc_url, timeout=5)
+            if desc_res.status_code == 200:
+                desc_text = json.dumps(desc_res.json())
+        except:
+            pass
+        
+        context_blocks.append(f"--- Contract: {title} (ID: {nid}) ---\nDescription: {desc_text[:3000]}\n")
+        
+    all_context = "\n".join(context_blocks)
+    
+    # 2. Call Gemini
+    try:
+        from google import genai
+        from google.genai import types
+        
+        client = genai.Client(api_key=gemini_key)
+        prompt = f"""
+        You are an expert Government Contracting Analyst. 
+        I am giving you a list of {len(opportunities)} active contracts.
+        For each contract, determine if it is "Low Hanging Fruit" (easy to fulfill, no complex certifications, quick turnaround) or "Complex" (requires ISO, ITAR, specific facility clearances, or long lead times).
+        Estimate the wait time for certifications if applicable.
+        
+        Contracts:
+        {all_context}
+        
+        Return a JSON object with a single key 'results' which is an array of objects. 
+        Each object MUST have:
+        "noticeId": <string>,
+        "difficulty": <"Easy", "Medium", "Hard">,
+        "score": <number 1-100 (100 is hardest)>,
+        "reason": <short 1-2 sentence explanation>
+        """
+        
+        response = client.models.generate_content(
+            model='gemini-3-flash-preview',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
+        )
+        
+        result_json = json.loads(response.text)
+        return jsonify({"status": "success", "data": result_json.get('results', [])})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/supplier_outreach', methods=['POST'])
+def supplier_outreach():
+    data = request.json
+    supplier_email = data.get('supplier_email')
+    part_name = data.get('part_name')
+    send_auto = data.get('send_auto', False)
+    
+    # Generate the email content
+    subject = f"Request for Quote (RFQ) - {part_name} - The Nomad Trader"
+    body = f"""Hello,
+
+My name is Thomas, and I am a purchasing agent representing The Nomad Trader. 
+We are currently sourcing components for an upcoming Federal Government contract.
+
+We would like to request a formal quote for the following part/product:
+Product: {part_name}
+Quantity: Please provide price breaks for 10, 50, and 100 units (if applicable).
+
+We are operating on a strict timeline, so your prompt response is highly appreciated. If you have an expedited shipping option or a dedicated B2B portal, please let us know.
+
+Thank you,
+Thomas Nosser
+The Nomad Trader
+thomas@thenomadtrader.net
+"""
+    
+    # If not sending automatically, just return the draft so the user can open it in their client
+    if not send_auto:
+        return jsonify({"status": "draft", "subject": subject, "body": body})
+        
+    # Optional: Actual SMTP sending logic (requires credentials in .env)
+    # GoDaddy SMTP settings: smtpout.secureserver.net : 465 (SSL)
+    import smtplib
+    from email.mime.text import MIMEText
+    
+    smtp_user = os.getenv('SMTP_USER') # e.g. thomas@thenomadtrader.net
+    smtp_pass = os.getenv('SMTP_PASS')
+    
+    if not smtp_user or not smtp_pass:
+        return jsonify({"error": "SMTP credentials missing from .env. Could not send email automatically."}), 400
+        
+    try:
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = smtp_user
+        msg['To'] = supplier_email
+        
+        server = smtplib.SMTP_SSL('smtpout.secureserver.net', 465)
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+        server.quit()
+        return jsonify({"status": "success", "message": "Email sent successfully to supplier."})
+    except Exception as e:
+        return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
 
 def duckduckgo_scrape(query):
     import requests
@@ -490,7 +657,7 @@ def source_parts():
         """
         
         response = client.models.generate_content(
-            model='gemini-3.0-pro',
+            model='gemini-3-flash-preview',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
