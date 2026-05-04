@@ -347,6 +347,7 @@ def get_intelligence():
         
     # 1.5. Fetch attached PDF documents (resourceLinks)
     pdf_text = ""
+    pdfs_read_count = 0
     try:
         opp_url = f"https://api.sam.gov/opportunities/v2/search?api_key={API_KEY}&noticeId={notice_id}"
         opp_res = requests.get(opp_url, timeout=15)
@@ -370,6 +371,7 @@ def get_intelligence():
                                     extracted = page.extract_text()
                                     if extracted:
                                         pdf_text += extracted + "\n"
+                                pdfs_read_count += 1
                         except Exception as e:
                             print(f"Error reading attachment {link}: {e}")
     except Exception as e:
@@ -423,6 +425,7 @@ def get_intelligence():
         )
         
         result_json = json.loads(response.text)
+        result_json['pdfs_analyzed'] = pdfs_read_count
         
         # 3. Save locally as a readable .txt file
         os.makedirs("scraped_data", exist_ok=True)
@@ -444,6 +447,9 @@ def get_intelligence():
             f.write(f"---------------------------------------\n\n")
             f.write(f"=== PROPOSAL TEMPLATE ===\n\n")
             f.write(result_json.get('proposal_template', 'Error generating template.'))
+            f.write(f"\n\n---------------------------------------\n")
+            f.write(f"=== RAW EXTRACTED PDF TEXT (First 15000 chars) ===\n\n")
+            f.write(pdf_text[:15000] if pdf_text else "No PDF text extracted.")
             
         return jsonify({"status": "success", "data": result_json, "file_saved": local_filename})
         

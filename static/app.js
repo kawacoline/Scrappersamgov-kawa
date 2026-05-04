@@ -645,7 +645,12 @@ window.generateIntelligence = async (noticeId, title) => {
         const d = result.data;
         const missingReqs = Array.isArray(d.missing_requirements) ? d.missing_requirements.join(', ') : d.missing_requirements;
         
+        const pdfStatus = (d.pdfs_analyzed !== undefined && d.pdfs_analyzed > 0)
+            ? `<div style="font-size: 0.85em; color: #4cd137; margin-bottom: 12px; padding: 8px; background: rgba(76, 209, 55, 0.1); border-radius: 4px; border-left: 3px solid #4cd137;">📄 <strong>Deep Scan:</strong> Successfully read and analyzed ${d.pdfs_analyzed} attached PDF document(s).</div>`
+            : `<div style="font-size: 0.85em; color: var(--text-muted); margin-bottom: 12px; padding: 8px; background: rgba(255, 255, 255, 0.05); border-radius: 4px; border-left: 3px solid var(--text-muted);">📄 <strong>Standard Scan:</strong> No readable PDF attachments found. Analysis based on standard summary text.</div>`;
+
         content.innerHTML = `
+            ${pdfStatus}
             <div style="margin-bottom: 16px;">
                 <h3 style="margin-bottom: 8px; color: var(--accent-primary);">Difficulty Score: ${d.difficulty_score}/100</h3>
                 <p style="margin-bottom:4px;"><strong>ETA:</strong> ${d.eta_weeks}</p>
