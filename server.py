@@ -364,7 +364,13 @@ def get_intelligence():
                         try:
                             # Attachments usually require API key
                             pdf_link = link if "api_key=" in link else f"{link}?api_key={API_KEY}"
-                            pdf_res = requests.get(pdf_link, timeout=15)
+                            
+                            headers = {}
+                            sam_cookie = os.getenv("SAM_COOKIE")
+                            if sam_cookie:
+                                headers["Cookie"] = sam_cookie
+                                
+                            pdf_res = requests.get(pdf_link, headers=headers, timeout=15)
                             if pdf_res.status_code == 200 and b"%PDF" in pdf_res.content[:10]:
                                 pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_res.content))
                                 for page in pdf_reader.pages:
