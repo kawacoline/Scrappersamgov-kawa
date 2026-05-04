@@ -3,3 +3,6 @@ flask-cors==5.0.1
 requests==2.32.3
 python-dotenv==1.1.0
 google-genai==1.72.0
+PyPDF2==3.0.1
+bs4==0.0.2
+beautifulsoup4==4.14.3
