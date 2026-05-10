@@ -240,7 +240,74 @@ def search_opportunities():
         all_opps.sort(key=lambda x: x.get('postedDate', ''), reverse=True)
     except:
         pass
+
+    # ── Bond Filtering (for Construction contracts) ────────────────
+    bond_filter = request.args.get('bondFilter', 'all')
+    if bond_filter in ('required', 'none'):
+        # Tag each opportunity with bond status by scanning description keywords
+        BOND_KEYWORDS = [
+            'payment bond', 'performance bond', 'payment and performance bond',
+            'surety bond', 'bid bond', 'miller act', 'far 28.102',
+            'far 52.228-15', 'far 52.228-1', 'bonding requirement',
+            'bond is required', 'bonds are required', 'bonding is required',
+            'must provide bond', 'shall furnish bond', 'shall provide bond',
+            'contractor shall furnish', 'performance and payment bond'
+        ]
+        NO_BOND_KEYWORDS = [
+            'no bond required', 'bond is not required', 'bonds not required',
+            'bond waived', 'bond waiver', 'no bonding', 'waive bond',
+            'bond not applicable'
+        ]
         
+        def detect_bond_status(opp):
+            """Returns 'required', 'none', or 'unknown' based on title + description hints."""
+            text = (opp.get('title', '') + ' ' + opp.get('description', '')).lower()
+            
+            # Check no-bond first (more specific)
+            for kw in NO_BOND_KEYWORDS:
+                if kw in text:
+                    return 'none'
+            
+            # Check bond-required keywords
+            for kw in BOND_KEYWORDS:
+                if kw in text:
+                    return 'required'
+            
+            # For construction over $150k, FAR 28.102 generally requires bonds
+            # We can infer from award value if available
+            return 'unknown'
+        
+        for opp in all_opps:
+            opp['_bondStatus'] = detect_bond_status(opp)
+        
+        if bond_filter == 'required':
+            all_opps = [o for o in all_opps if o.get('_bondStatus') in ('required', 'unknown')]
+        elif bond_filter == 'none':
+            all_opps = [o for o in all_opps if o.get('_bondStatus') in ('none', 'unknown')]
+    else:
+        # Tag them anyway for badge display but don't filter
+        BOND_KEYWORDS = [
+            'payment bond', 'performance bond', 'payment and performance bond',
+            'surety bond', 'bid bond', 'miller act', 'far 28.102',
+            'bonding requirement', 'bond is required'
+        ]
+        NO_BOND_KEYWORDS = [
+            'no bond required', 'bond is not required', 'bond waived', 'no bonding'
+        ]
+        for opp in all_opps:
+            text = (opp.get('title', '') + ' ' + opp.get('description', '')).lower()
+            status = 'unknown'
+            for kw in NO_BOND_KEYWORDS:
+                if kw in text:
+                    status = 'none'
+                    break
+            if status == 'unknown':
+                for kw in BOND_KEYWORDS:
+                    if kw in text:
+                        status = 'required'
+                        break
+            opp['_bondStatus'] = status
+
     all_opps = all_opps[:limit_int]
 
     return jsonify({
@@ -753,6 +820,133 @@ def export_data():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/find_vendors', methods=['POST'])
+def find_vendors():
+    """Find qualified vendors in a specific state using SAM.gov Entity API + web search."""
+    data = request.json
+    state = data.get('state', '')
+    naics_code = data.get('naicsCode', '')
+    title = data.get('title', '')
+    notice_id = data.get('noticeId', '')
+    
+    vendors = []
+    seen_names = set()
+    
+    # ── Method 1: SAM.gov Entity API ──────────────────────────────
+    SAM_ENTITY_API = "https://api.sam.gov/entity-information/v3/entities"
+    try:
+        entity_params = {
+            "api_key": SAM_API_KEY,
+            "registrationStatus": "A",  # Active registrations only
+            "includeSections": "entityRegistration,coreData,assertions,certifications",
+            "page": 0,
+            "size": 15,
+        }
+        
+        if state:
+            entity_params["physicalAddressStateCode"] = state
+        if naics_code:
+            entity_params["naicsCode"] = naics_code
+            
+        entity_res = requests.get(SAM_ENTITY_API, params=entity_params, timeout=15)
+        if entity_res.status_code == 200:
+            entity_data = entity_res.json()
+            entities = entity_data.get('entityData', [])
+            
+            for ent in entities:
+                reg = ent.get('entityRegistration', {})
+                core = ent.get('coreData', {})
+                assertions = ent.get('assertions', {})
+                
+                name = reg.get('legalBusinessName', 'Unknown Business')
+                if name.lower() in seen_names:
+                    continue
+                seen_names.add(name.lower())
+                
+                addr = core.get('physicalAddress', {})
+                uei = reg.get('ueiSAM', '')
+                cage = reg.get('cageCode', '')
+                
+                # Extract certifications
+                certs = []
+                goods_and_services = assertions.get('goodsAndServices', {})
+                if goods_and_services:
+                    naics_list = goods_and_services.get('naicsList', [])
+                    for n in naics_list[:5]:
+                        code = n.get('naicsCode', '')
+                        desc = n.get('naicsDescription', '')
+                        if code:
+                            certs.append(f"NAICS {code}")
+                
+                # Check for small biz certs
+                sb_types = reg.get('businessTypes', [])
+                if isinstance(sb_types, list):
+                    for bt in sb_types[:5]:
+                        if isinstance(bt, str):
+                            certs.append(bt)
+                        elif isinstance(bt, dict):
+                            certs.append(bt.get('shortDescription', bt.get('businessTypeCode', '')))
+                
+                vendors.append({
+                    'name': name,
+                    'city': addr.get('city', ''),
+                    'state': addr.get('stateOrProvinceCode', state),
+                    'zip': addr.get('zipCode', ''),
+                    'uei': uei,
+                    'cage': cage,
+                    'certs': certs[:8],  # Limit to 8 cert tags
+                    'email': core.get('electronicBusinessPointOfContact', {}).get('email', ''),
+                    'sam_url': f"https://sam.gov/entity/{uei}/coreData" if uei else '',
+                    'source': 'SAM.gov'
+                })
+    except Exception as e:
+        print(f"[Vendor Finder] SAM Entity API error: {e}")
+    
+    # ── Method 2: DuckDuckGo web search fallback ──────────────────
+    if len(vendors) < 5 and (state or naics_code):
+        try:
+            search_terms = []
+            if naics_code:
+                search_terms.append(naics_code)
+            if title:
+                # Extract key service terms from the title
+                for word in title.split()[:4]:
+                    if len(word) > 3 and word.lower() not in ('the', 'and', 'for', 'with'):
+                        search_terms.append(word)
+            
+            query = f"government contractor {' '.join(search_terms)} {state} certified"
+            web_results = duckduckgo_scrape(query.replace(' price', ''))
+            
+            for r in web_results[:5]:
+                name = r.get('supplier', 'Unknown')
+                if name.lower() in seen_names:
+                    continue
+                seen_names.add(name.lower())
+                
+                vendors.append({
+                    'name': name,
+                    'city': '',
+                    'state': state,
+                    'zip': '',
+                    'uei': '',
+                    'cage': '',
+                    'certs': ['Web Result'],
+                    'email': '',
+                    'sam_url': r.get('url', ''),
+                    'source': 'Web Search'
+                })
+        except Exception as e:
+            print(f"[Vendor Finder] Web search error: {e}")
+    
+    return jsonify({
+        'status': 'success',
+        'vendors': vendors[:15],  # Cap at 15 results
+        'state': state,
+        'naicsCode': naics_code
+    })
+
 def check_for_updates():
     """Background loop that polls Git for updates."""
     while True:

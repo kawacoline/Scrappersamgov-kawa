@@ -83,6 +83,25 @@
                 </div>
             </section>
 
+            <!-- Bond Filter (Construction Only) -->
+            <section class="filter-section bond-filter-section" id="bondFilterSection" style="display:none;">
+                <h3 class="filter-title">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    Payment &amp; Performance Bond
+                </h3>
+                <div class="bond-toggle" id="bondToggle">
+                    <input type="radio" id="bondAll" name="bondFilter" value="all" checked>
+                    <label for="bondAll" class="bond-btn">All</label>
+
+                    <input type="radio" id="bondRequired" name="bondFilter" value="required">
+                    <label for="bondRequired" class="bond-btn">🔒 Bond Required</label>
+
+                    <input type="radio" id="bondNone" name="bondFilter" value="none">
+                    <label for="bondNone" class="bond-btn">✅ No Bond</label>
+                </div>
+                <p class="filter-hint">Filter construction contracts by bond requirement (FAR 28.102)</p>
+            </section>
+
             <!-- Keyword Search -->
             <section class="filter-section">
                 <h3 class="filter-title">

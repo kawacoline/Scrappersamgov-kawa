@@ -111,6 +111,8 @@ function populateFilters() {
     }
 }
 
+let activePresetKey = null;
+
 function selectPreset(key, btnNode) {
     // Update UI toggle
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
@@ -118,6 +120,17 @@ function selectPreset(key, btnNode) {
     
     const preset = config.naics_presets[key];
     els.naics.value = preset.codes.join(',');
+    activePresetKey = key;
+
+    // Show/hide bond filter for construction
+    const bondSection = document.getElementById('bondFilterSection');
+    if (key === 'construction_repairs') {
+        bondSection.style.display = 'flex';
+    } else {
+        bondSection.style.display = 'none';
+        // Reset bond filter when switching away
+        document.getElementById('bondAll').checked = true;
+    }
 }
 
 function setupEventListeners() {
@@ -137,6 +150,10 @@ function setupEventListeners() {
         els.rFrom.value = '';
         els.rTo.value = '';
         setDefaultDates();
+        activePresetKey = null;
+        // Hide bond filter and reset
+        document.getElementById('bondFilterSection').style.display = 'none';
+        document.getElementById('bondAll').checked = true;
     });
 
     els.btnPrev.addEventListener('click', () => {
@@ -287,6 +304,7 @@ async function performSearch(isPagination = false) {
 
     if (!isPagination) {
         // Gather filters
+        const bondVal = document.querySelector('input[name="bondFilter"]:checked')?.value || 'all';
         currentFilters = {
             postedFrom: formatDateForApi(els.dFrom.value),
             postedTo: formatDateForApi(els.dTo.value),
@@ -298,6 +316,7 @@ async function performSearch(isPagination = false) {
             zip: els.zip.value.trim(),
             rdlfrom: formatDateForApi(els.rFrom.value),
             rdlto: formatDateForApi(els.rTo.value),
+            bondFilter: activePresetKey === 'construction_repairs' ? bondVal : '',
         };
         
         // Low Hanging Fruit Override
@@ -425,6 +444,8 @@ function displayResults(data, mode) {
             if (opp.type) badgesHtml += `<span class="badge type">${opp.type}</span>`;
             if (opp.naicsCode) badgesHtml += `<span class="badge">NAICS: ${opp.naicsCode}</span>`;
             if (opp.typeOfSetAsideDescription) badgesHtml += `<span class="badge">🎁 ${opp.typeOfSetAsideDescription}</span>`;
+            if (opp._bondStatus === 'required') badgesHtml += `<span class="badge bond-required">🔒 Bond Required</span>`;
+            else if (opp._bondStatus === 'none') badgesHtml += `<span class="badge bond-none">✅ No Bond</span>`;
 
             card.innerHTML = `
                 <div class="card-header">
@@ -595,6 +616,17 @@ function openModal(index, mode) {
                     </div>
                     <div id="sourceContent" style="display:none;"></div>
                 </div>
+
+                <button class="btn btn-secondary" id="findVendorsBtn" style="border: 1px solid #818cf8;">
+                    🏢 Find Qualified Vendors in State
+                </button>
+                <div id="vendorFinderBox" style="display:none; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:16px;">
+                    <div style="display:flex; justify-content:center; align-items:center;" id="vendorLoader">
+                        <div class="loader-ring" style="width:24px; height:24px; border-width:2px; margin-right: 8px; border-color: #818cf8 transparent transparent transparent;"></div>
+                        Searching for qualified vendors...
+                    </div>
+                    <div id="vendorContent" style="display:none;"></div>
+                </div>
             </div>
             <a href="${uiLink}" target="_blank" class="m-link">View Full Details on SAM.gov ↗</a>
         `;
@@ -611,8 +643,14 @@ function openModal(index, mode) {
     const sourceBtn = document.getElementById('sourcePartsBtn');
     if (sourceBtn && mode !== 'past') {
         const oppCopy = item;
-        // In a real scenario we might ping /noticedesc first to get the description, but here we'll pass noticeId or title
         sourceBtn.addEventListener('click', () => window.sourceParts(oppCopy.title, oppCopy.description || ''));
+    }
+
+    const vendorBtn = document.getElementById('findVendorsBtn');
+    if (vendorBtn && mode !== 'past') {
+        const oppCopy = item;
+        const contractState = oppCopy.placeOfPerformance?.state?.code || oppCopy.officeAddress?.state || els.state.value.trim().toUpperCase() || '';
+        vendorBtn.addEventListener('click', () => window.findVendors(oppCopy.noticeId, oppCopy.title, contractState, oppCopy.naicsCode || ''));
     }
 
     els.modalOverlay.style.display = 'flex';
@@ -760,6 +798,73 @@ window.draftOutreach = async (partName, supplierEmail) => {
         }
     } catch(e) {
         alert('Failed to trigger outreach: ' + e.message);
+    }
+}
+
+window.findVendors = async (noticeId, title, state, naicsCode) => {
+    const btn = document.getElementById('findVendorsBtn');
+    const box = document.getElementById('vendorFinderBox');
+    const loader = document.getElementById('vendorLoader');
+    const content = document.getElementById('vendorContent');
+    
+    btn.style.display = 'none';
+    box.style.display = 'block';
+    loader.style.display = 'flex';
+    content.style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/find_vendors', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ noticeId, title, state, naicsCode })
+        });
+        const result = await response.json();
+        
+        if (!response.ok) throw new Error(result.error || result.message);
+        
+        loader.style.display = 'none';
+        content.style.display = 'block';
+        
+        const vendors = result.vendors || [];
+        if (vendors.length === 0) {
+            content.innerHTML = `<div style="color:var(--text-muted); text-align:center;">No qualified vendors found in ${state || 'the specified area'}. Try broadening your search on SAM.gov Entity search.</div>`;
+            return;
+        }
+        
+        let html = `<h3 style="margin-bottom:12px; color:var(--accent-secondary);">🏢 Qualified Vendors in ${state || 'Area'}</h3>`;
+        html += `<p style="font-size:0.85em; color:var(--text-muted); margin-bottom:16px;">${vendors.length} vendor(s) found matching NAICS ${naicsCode || 'related codes'}</p>`;
+        html += `<div style="display:flex; flex-direction:column; gap:10px;">`;
+        
+        vendors.forEach(v => {
+            html += `
+                <div class="vendor-card">
+                    <div class="vendor-name">${v.name}</div>
+                    <div class="vendor-location">📍 ${v.city || ''}, ${v.state || state} ${v.zip || ''}</div>
+                    ${v.certs && v.certs.length > 0 ? `
+                        <div class="vendor-certs">
+                            ${v.certs.map(c => `<span class="cert-tag">${c}</span>`).join('')}
+                        </div>` : ''}
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        ${v.uei ? `<span style="font-size:0.8em; color:var(--text-muted);">UEI: ${v.uei}</span>` : ''}
+                        ${v.cage ? `<span style="font-size:0.8em; color:var(--text-muted);">CAGE: ${v.cage}</span>` : ''}
+                    </div>
+                    <div style="margin-top:10px; display:flex; gap:8px;">
+                        ${v.sam_url ? `<a href="${v.sam_url}" target="_blank" style="font-size:0.85em; color:var(--accent-primary); text-decoration:none;">View on SAM ↗</a>` : ''}
+                        <a href="javascript:void(0)" onclick="window.draftOutreach('${(title || '').replace(/'/g, '')}', '${v.email || 'contractor@example.com'}')" style="font-size:0.85em; color:#fff; text-decoration:underline;">Send RFQ ✉️</a>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += `</div>`;
+        content.innerHTML = html;
+        
+    } catch (e) {
+        loader.style.display = 'none';
+        content.style.display = 'block';
+        content.innerHTML = `<div style="color:#ff6b6b; padding:12px; background:rgba(255,0,0,0.1); border-radius:4px;">Error: ${e.message}</div>`;
+        btn.style.display = 'block';
+        btn.textContent = 'Retry Vendor Search';
     }
 }
 
