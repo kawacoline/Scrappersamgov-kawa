@@ -199,29 +199,37 @@ def search_opportunities():
     seen_ids = set()
     errors = []
 
+    bond_filter = request.args.get('bondFilter', 'all')
+    print(f"[SEARCH] Mode: Active Bids | NAICS: {ncode_list} | State: {state or 'Any'} | Bond: {bond_filter}")
+
     def fetch_for_ncode(ncode_val):
         iter_params = params.copy()
         if ncode_val:
             iter_params["ncode"] = ncode_val
-        resp = requests.get(SAM_API_BASE, params=iter_params, timeout=30)
+        print(f"  -> Fetching NAICS {ncode_val or 'ALL'}...")
+        resp = requests.get(SAM_API_BASE, params=iter_params, timeout=15)
         resp.raise_for_status()
         return resp.json()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         future_to_ncode = {executor.submit(fetch_for_ncode, code): code for code in ncode_list}
-        for future in concurrent.futures.as_completed(future_to_ncode):
+        for future in concurrent.futures.as_completed(future_to_ncode, timeout=20):
+            ncode_key = future_to_ncode[future]
             try:
-                data = future.result()
-                try:
-                    total_records += int(data.get("totalRecords", 0))
-                except:
-                    pass
-                for opp in data.get("opportunitiesData", []):
+                data = future.result(timeout=15)
+                count = int(data.get("totalRecords", 0))
+                opps = data.get("opportunitiesData", [])
+                print(f"  <- NAICS {ncode_key or 'ALL'}: {count} total, {len(opps)} returned")
+                total_records += count
+                for opp in opps:
                     if opp["noticeId"] not in seen_ids:
                         seen_ids.add(opp["noticeId"])
                         all_opps.append(opp)
+            except concurrent.futures.TimeoutError:
+                print(f"  !! NAICS {ncode_key} TIMED OUT — skipping")
+                errors.append(f"NAICS {ncode_key} timed out")
             except Exception as e:
-                # Store the error mapping
+                print(f"  !! NAICS {ncode_key} ERROR: {e}")
                 errors.append(str(e))
 
     if not all_opps and errors:
@@ -242,7 +250,6 @@ def search_opportunities():
         pass
 
     # ── Bond Filtering (for Construction contracts) ────────────────
-    bond_filter = request.args.get('bondFilter', 'all')
     if bond_filter in ('required', 'none'):
         # Tag each opportunity with bond status by scanning description keywords
         BOND_KEYWORDS = [
@@ -985,4 +992,4 @@ if __name__ == "__main__":
     updater_thread = threading.Thread(target=check_for_updates, daemon=True)
     updater_thread.start()
     
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000, use_reloader=False)
