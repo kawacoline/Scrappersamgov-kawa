@@ -200,37 +200,65 @@ def search_opportunities():
     errors = []
 
     bond_filter = request.args.get('bondFilter', 'all')
-    print(f"[SEARCH] Mode: Active Bids | NAICS: {ncode_list} | State: {state or 'Any'} | Bond: {bond_filter}")
+    print(f"\n{'='*60}")
+    print(f"[SEARCH] NAICS: {ncode_list} | State: {state or 'Any'} | Bond: {bond_filter}")
+    print(f"{'='*60}")
 
     def fetch_for_ncode(ncode_val):
         iter_params = params.copy()
         if ncode_val:
             iter_params["ncode"] = ncode_val
-        print(f"  -> Fetching NAICS {ncode_val or 'ALL'}...")
-        resp = requests.get(SAM_API_BASE, params=iter_params, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
+        
+        # Build the actual URL so we can see exactly what's being called
+        from urllib.parse import urlencode
+        debug_params = {k: v for k, v in iter_params.items() if k != 'api_key'}
+        print(f"  [>>] NAICS {ncode_val or 'ALL'} — Calling SAM.gov...")
+        print(f"       URL: {SAM_API_BASE}?{urlencode(debug_params)}")
+        
+        import time as _time
+        start = _time.time()
+        try:
+            resp = requests.get(SAM_API_BASE, params=iter_params, timeout=30)
+            elapsed = round(_time.time() - start, 2)
+            print(f"  [<<] NAICS {ncode_val or 'ALL'} — HTTP {resp.status_code} in {elapsed}s")
+            
+            if resp.status_code != 200:
+                print(f"       RESPONSE BODY: {resp.text[:500]}")
+                resp.raise_for_status()
+            
+            return resp.json()
+        except requests.exceptions.Timeout:
+            elapsed = round(_time.time() - start, 2)
+            print(f"  [!!] NAICS {ncode_val or 'ALL'} — TIMEOUT after {elapsed}s (SAM.gov not responding)")
+            raise
+        except requests.exceptions.ConnectionError as e:
+            elapsed = round(_time.time() - start, 2)
+            print(f"  [!!] NAICS {ncode_val or 'ALL'} — CONNECTION ERROR after {elapsed}s: {e}")
+            raise
+        except Exception as e:
+            elapsed = round(_time.time() - start, 2)
+            print(f"  [!!] NAICS {ncode_val or 'ALL'} — ERROR after {elapsed}s: {type(e).__name__}: {e}")
+            raise
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         future_to_ncode = {executor.submit(fetch_for_ncode, code): code for code in ncode_list}
-        for future in concurrent.futures.as_completed(future_to_ncode, timeout=20):
+        for future in concurrent.futures.as_completed(future_to_ncode):
             ncode_key = future_to_ncode[future]
             try:
-                data = future.result(timeout=15)
+                data = future.result()
                 count = int(data.get("totalRecords", 0))
                 opps = data.get("opportunitiesData", [])
-                print(f"  <- NAICS {ncode_key or 'ALL'}: {count} total, {len(opps)} returned")
+                print(f"  [OK] NAICS {ncode_key or 'ALL'}: {count} total records, {len(opps)} returned this page")
                 total_records += count
                 for opp in opps:
                     if opp["noticeId"] not in seen_ids:
                         seen_ids.add(opp["noticeId"])
                         all_opps.append(opp)
-            except concurrent.futures.TimeoutError:
-                print(f"  !! NAICS {ncode_key} TIMED OUT — skipping")
-                errors.append(f"NAICS {ncode_key} timed out")
             except Exception as e:
-                print(f"  !! NAICS {ncode_key} ERROR: {e}")
+                print(f"  [FAIL] NAICS {ncode_key}: {type(e).__name__}: {e}")
                 errors.append(str(e))
+    
+    print(f"[SEARCH DONE] {len(all_opps)} unique results collected, {len(errors)} errors")
 
     if not all_opps and errors:
         return jsonify({
