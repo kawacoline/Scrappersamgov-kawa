@@ -39,7 +39,7 @@ echo  Starting server at http://localhost:5000
 echo  Press Ctrl+C to stop.
 echo.
 
-python server.py
+python -u server.py
 
 :: Check the exit code of python server.py
 if %errorlevel% equ 42 (
