@@ -985,4 +985,4 @@ if __name__ == "__main__":
     updater_thread = threading.Thread(target=check_for_updates, daemon=True)
     updater_thread.start()
     
-    app.run(debug=False, port=5000)
+    app.run(debug=True, port=5000)
