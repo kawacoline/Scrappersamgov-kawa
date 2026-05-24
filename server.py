@@ -537,10 +537,20 @@ def get_intelligence():
         
         # 3. Save locally as a readable .txt file
         os.makedirs("scraped_data", exist_ok=True)
-        # Create a safe, human-readable filename from the contract title
-        safe_title = "".join(c if c.isalnum() else "_" for c in contract_title)[:60].strip('_')
-        prefix = f"AI_Report_{safe_title}" if safe_title else "AI_Report"
-        local_filename = f"scraped_data/{prefix}_{notice_id}.txt"
+        # Create a safe, human-readable filename containing title, score, notes snippet, and notice ID
+        score = result_json.get('difficulty_score', 'NA')
+        notes_raw = str(result_json.get('notes', ''))
+        notes_snippet = "".join(c if c.isalnum() else "_" for c in notes_raw)[:30].strip('_')
+        safe_title = "".join(c if c.isalnum() else "_" for c in contract_title)[:40].strip('_')
+        
+        # Build filename parts avoiding multiple underscores
+        parts = [p for p in [safe_title, f"Score{score}", notes_snippet, notice_id] if p]
+        # Remove consecutive underscores from joining
+        clean_name = "_".join(parts)
+        import re
+        clean_name = re.sub(r'_+', '_', clean_name)
+        
+        local_filename = f"scraped_data/AI_Report_{clean_name}.txt"
         
         with open(local_filename, "w", encoding="utf-8") as f:
             f.write(f"=== CONTRACT AI INTELLIGENCE REPORT ===\n")
