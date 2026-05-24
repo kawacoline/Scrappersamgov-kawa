@@ -537,7 +537,10 @@ def get_intelligence():
         
         # 3. Save locally as a readable .txt file
         os.makedirs("scraped_data", exist_ok=True)
-        local_filename = f"scraped_data/AI_Report_{notice_id}.txt"
+        # Create a safe, human-readable filename from the contract title
+        safe_title = "".join(c if c.isalnum() else "_" for c in contract_title)[:60].strip('_')
+        prefix = f"AI_Report_{safe_title}" if safe_title else "AI_Report"
+        local_filename = f"scraped_data/{prefix}_{notice_id}.txt"
         
         with open(local_filename, "w", encoding="utf-8") as f:
             f.write(f"=== CONTRACT AI INTELLIGENCE REPORT ===\n")
