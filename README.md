@@ -1,4 +1,4 @@
-# 🏛️ ScrapperGov — SAM.gov Federal Contract Intelligence Platform & Scraper
+# 🏛️ SamGov Intelligence — Federal Contract Opportunity Pipeline & Scraper
 
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg?logo=python)](https://python.org)
 [![Backend Framework](https://img.shields.io/badge/Framework-Flask%20%2F%20REST%20API-red.svg)](https://flask.palletsprojects.com/)
@@ -62,8 +62,8 @@ Featuring a robust Flask REST proxy backend and a clean, responsive single-page 
 
 ### 2. Clone & Install
 ```bash
-git clone https://github.com/kawacoline/Scrappersamgov-kawa.git
-cd Scrappersamgov-kawa
+git clone https://github.com/kawacoline/SamGov-Contract-Intelligence.git
+cd SamGov-Contract-Intelligence
 setup.bat
 ```
 
