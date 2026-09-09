@@ -119,11 +119,11 @@ Open your browser at **`http://localhost:5000`** to access the dashboard.
 
 ## 👨‍💻 Author
 
-**Hazael**  
+**Kawacoline**  
 *Full Stack Software Engineer & Data Engineering Specialist*  
 - **GitHub**: [@kawacoline](https://github.com/kawacoline)  
 - **Email**: kawacoline@gmail.com  
-- **Portfolio**: [hazael.dev](https://github.com/kawacoline)
+- **Portfolio**: [kawacoline](https://github.com/kawacoline)
 
 ---
 
